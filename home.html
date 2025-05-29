@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Home</title>
+    <link rel="icon" href="classroom.jpeg" type="image/x-icon" >
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap");
+      body {
+        margin: 0;
+        padding: 0;
+        background: #1c1c1c;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        font-family: "Roboto Mono", monospace;
+        color: #ddd;
+        user-select: none;
+      }
+      h1 {
+        margin: 20px 0 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        color: #f0f0f0;
+        text-shadow: 0 0 6px #00aaffaa;
+      }
+      #chessboard {
+        display: grid;
+        grid-template-columns: repeat(8, 60px);
+        grid-template-rows: repeat(8, 60px);
+        box-shadow: 0 0 15px #00aaffaa;
+        border-radius: 8px;
+      }
+      .square {
+        width: 60px;
+        height: 60px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 44px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+        position: relative;
+      }
+      .square.light {
+        background-color: #f0d9b5;
+      }
+      .square.dark {
+        background-color: #b58863;
+      }
+      /* White piece squares fully white background */
+      .square.white-piece-square {
+      }
+      .square.selected {
+        outline: 3px solid #00aaff;
+        outline-offset: -3px;
+      }
+      .square.possible-move {
+        background-color: #4caf5088;
+      }
+      .square.king-in-check {
+        background-color: #ff4c4c !important;
+      }
+      .piece.white {
+        color: #f0f0f0; /* bright white */
+        font-weight: 700;
+        -webkit-font-smoothing: antialiased;
+        text-shadow: 0 0 3px #00000088;
+      }
+      .piece.black {
+        color: #111111;
+        font-weight: 700;
+        -webkit-font-smoothing: antialiased;
+      }
+      #status {
+        margin-top: 15px;
+        font-size: 20px;
+        font-weight: 600;
+        color: #00aaff;
+        text-shadow: 0 0 4px #00aaffaa;
+        min-height: 26px;
+      }
+      #status.check {
+        color: #ff4c4c;
+        text-shadow: 0 0 8px #ff4c4caa;
+      }
+      #resetBtn {
+        margin: 20px;
+        padding: 10px 18px;
+        font-size: 16px;
+        border: none;
+        border-radius: 6px;
+        background: #00aaff;
+        color: white;
+        cursor: pointer;
+        box-shadow: 0 0 10px #00aaffcc;
+        transition: background-color 0.3s ease;
+      }
+      #resetBtn:hover {
+        background: #0088cc;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Chess Game</h1>
+    <div id="chessboard"></div>
+    <div id="status">White to move</div>
+    <button id="resetBtn">Reset Game</button>
+    <script>
+      (() => {
+        const boardElement = document.getElementById("chessboard");
+        const statusElement = document.getElementById("status");
+        const resetBtn = document.getElementById("resetBtn");
+
+        const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+
+        const piecesUnicode = {
+          p: "♟", // black pawn
+          r: "♜",
+          n: "♞",
+          b: "♝",
+          q: "♛",
+          k: "♚",
+          P: "♙", // white pawn
+          R: "♖",
+          N: "♘",
+          B: "♗",
+          Q: "♕",
+          K: "♔",
+        };
+
+        let board = [
+          ["r", "n", "b", "q", "k", "b", "n", "r"],
+          ["p", "p", "p", "p", "p", "p", "p", "p"],
+          ["", "", "", "", "", "", "", ""],
+          ["", "", "", "", "", "", "", ""],
+          ["", "", "", "", "", "", "", ""],
+          ["", "", "", "", "", "", "", ""],
+          ["P", "P", "P", "P", "P", "P", "P", "P"],
+          ["R", "N", "B", "Q", "K", "B", "N", "R"],
+        ];
+
+        let selectedSquare = null; // {rank, file}
+        let possibleMoves = [];
+        let currentTurn = "white";
+        let gameOver = false;
+
+        function isWhite(piece) {
+          return piece && piece === piece.toUpperCase();
+        }
+        function isBlack(piece) {
+          return piece && piece === piece.toLowerCase() && piece !== "";
+        }
+        function opponent(color) {
+          return color === "white" ? "black" : "white";
+        }
+        function pieceColor(piece) {
+          if (!piece) return null;
+          return isWhite(piece) ? "white" : "black";
+        }
+        function capitalize(s) {
+          return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        function onBoard(rank, file) {
+          return rank >= 0 && rank < 8 && file >= 0 && file < 8;
+        }
+
+        // Check if king of given color is under check
+        function isKingInCheckPosition(testBoard, color) {
+          let kingPos = null;
+          for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+              if (testBoard[r][f]) {
+                let p = testBoard[r][f];
+                if (p.toUpperCase() === "K" && pieceColor(p) === color) {
+                  kingPos = { rank: r, file: f };
+                  break;
+                }
+              }
+            }
+            if (kingPos) break;
+          }
+          if (!kingPos) return false;
+
+          const opponentColor = opponent(color);
+
+          for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+              let p = testBoard[r][f];
+              if (p && pieceColor(p) === opponentColor) {
+                const moves = generatePossibleMovesForCheck(
+                  testBoard,
+                  r,
+                  f,
+                  false
+                );
+                if (
+                  moves.some(
+                    (m) => m.rank === kingPos.rank && m.file === kingPos.file
+                  )
+                ) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        }
+        // Checks if the given square is the king of given color under check (for red highlight)
+        function isKingCheckedSquare(rank, file, color) {
+          if (!board[rank][file]) return false;
+          if (board[rank][file].toUpperCase() !== "K") return false;
+          return isKingInCheckPosition(board, color);
+        }
+
+        function generatePossibleMoves(rank, file, checkCheck = true) {
+          let piece = board[rank][file];
+          let color = pieceColor(piece);
+          if (!piece || color !== currentTurn) return [];
+
+          const directions = {
+            N: [
+              [-2, -1],
+              [-2, 1],
+              [-1, -2],
+              [-1, 2],
+              [1, -2],
+              [1, 2],
+              [2, -1],
+              [2, 1],
+            ],
+            B: [
+              [-1, -1],
+              [-1, 1],
+              [1, -1],
+              [1, 1],
+            ],
+            R: [
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ],
+            Q: [
+              [-1, -1],
+              [-1, 1],
+              [1, -1],
+              [1, 1],
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ],
+            K: [
+              [-1, -1],
+              [-1, 1],
+              [1, -1],
+              [1, 1],
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ],
+          };
+
+          let moves = [];
+
+          function addMove(r, f) {
+            if (!onBoard(r, f)) return;
+            const target = board[r][f];
+            if (!target || pieceColor(target) !== color) {
+              moves.push({ rank: r, file: f });
+            }
+          }
+
+          switch (piece.toUpperCase()) {
+            case "P": {
+              const dir = color === "white" ? -1 : 1;
+              let fr = rank + dir;
+              if (onBoard(fr, file) && !board[fr][file]) {
+                moves.push({ rank: fr, file });
+                const startRow = color === "white" ? 6 : 1;
+                if (rank === startRow && !board[fr + dir]?.[file]) {
+                  moves.push({ rank: fr + dir, file });
+                }
+              }
+              for (let df of [-1, 1]) {
+                let cf = file + df;
+                if (onBoard(fr, cf)) {
+                  let target = board[fr][cf];
+                  if (target && pieceColor(target) === opponent(color)) {
+                    moves.push({ rank: fr, file: cf });
+                  }
+                }
+              }
+              break;
+            }
+            case "N": {
+              for (let d of directions["N"]) {
+                let r = rank + d[0],
+                  f = file + d[1];
+                if (onBoard(r, f)) {
+                  let target = board[r][f];
+                  if (!target || pieceColor(target) !== color) {
+                    moves.push({ rank: r, file: f });
+                  }
+                }
+              }
+              break;
+            }
+            case "B":
+            case "R":
+            case "Q": {
+              let dirs = [];
+              if (piece.toUpperCase() === "B") dirs = directions["B"];
+              else if (piece.toUpperCase() === "R") dirs = directions["R"];
+              else dirs = directions["Q"];
+              for (let d of dirs) {
+                let r = rank + d[0],
+                  f = file + d[1];
+                while (onBoard(r, f)) {
+                  let target = board[r][f];
+                  if (!target) {
+                    moves.push({ rank: r, file: f });
+                  } else {
+                    if (pieceColor(target) !== color)
+                      moves.push({ rank: r, file: f });
+                    break;
+                  }
+                  r += d[0];
+                  f += d[1];
+                }
+              }
+              break;
+            }
+            case "K": {
+              for (let d of directions["K"]) {
+                let r = rank + d[0],
+                  f = file + d[1];
+                if (onBoard(r, f)) {
+                  let target = board[r][f];
+                  if (!target || pieceColor(target) !== color) {
+                    moves.push({ rank: r, file: f });
+                  }
+                }
+              }
+              break;
+            }
+          }
+
+          if (checkCheck) {
+            moves = moves.filter((move) => {
+              const testBoard = copyBoard(board);
+              testBoard[move.rank][move.file] = piece;
+              testBoard[rank][file] = "";
+              return !isKingInCheckPosition(testBoard, color);
+            });
+          }
+          return moves;
+        }
+
+        function generatePossibleMovesForCheck(
+          testBoard,
+          rank,
+          file,
+          checkCheck = true
+        ) {
+          let piece = testBoard[rank][file];
+          if (!piece) return [];
+          let color = pieceColor(piece);
+          if (!piece) return [];
+
+          const directions = {
+            N: [
+              [-2, -1],
+              [-2, 1],
+              [-1, -2],
+              [-1, 2],
+              [1, -2],
+              [1, 2],
+              [2, -1],
+              [2, 1],
+            ],
+            B: [
+              [-1, -1],
+              [-1, 1],
+              [1, -1],
+              [1, 1],
+            ],
+            R: [
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ],
+            Q: [
+              [-1, -1],
+              [-1, 1],
+              [1, -1],
+              [1, 1],
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ],
+            K: [
+              [-1, -1],
+              [-1, 1],
+              [1, -1],
+              [1, 1],
+              [-1, 0],
+              [1, 0],
+              [0, -1],
+              [0, 1],
+            ],
+          };
+
+          let moves = [];
+
+          function addMove(r, f) {
+            if (!onBoard(r, f)) return;
+            const target = testBoard[r][f];
+            if (!target || pieceColor(target) !== color) {
+              moves.push({ rank: r, file: f });
+            }
+          }
+
+          switch (piece.toUpperCase()) {
+            case "P": {
+              const dir = color === "white" ? -1 : 1;
+              let fr = rank + dir;
+              if (onBoard(fr, file) && !testBoard[fr][file]) {
+                moves.push({ rank: fr, file });
+                const startRow = color === "white" ? 6 : 1;
+                if (rank === startRow && !testBoard[fr + dir]?.[file]) {
+                  moves.push({ rank: fr + dir, file });
+                }
+              }
+              for (let df of [-1, 1]) {
+                let cf = file + df;
+                if (onBoard(fr, cf)) {
+                  let target = testBoard[fr][cf];
+                  if (target && pieceColor(target) === opponent(color)) {
+                    moves.push({ rank: fr, file: cf });
+                  }
+                }
+              }
+              break;
+            }
+            case "N": {
+              for (let d of directions["N"]) {
+                let r = rank + d[0],
+                  f = file + d[1];
+                if (onBoard(r, f)) {
+                  let target = testBoard[r][f];
+                  if (!target || pieceColor(target) !== color) {
+                    moves.push({ rank: r, file: f });
+                  }
+                }
+              }
+              break;
+            }
+            case "B":
+            case "R":
+            case "Q": {
+              let dirs = [];
+              if (piece.toUpperCase() === "B") dirs = directions["B"];
+              else if (piece.toUpperCase() === "R") dirs = directions["R"];
+              else dirs = directions["Q"];
+              for (let d of dirs) {
+                let r = rank + d[0],
+                  f = file + d[1];
+                while (onBoard(r, f)) {
+                  let target = testBoard[r][f];
+                  if (!target) {
+                    moves.push({ rank: r, file: f });
+                  } else {
+                    if (pieceColor(target) !== color)
+                      moves.push({ rank: r, file: f });
+                    break;
+                  }
+                  r += d[0];
+                  f += d[1];
+                }
+              }
+              break;
+            }
+            case "K": {
+              for (let d of directions["K"]) {
+                let r = rank + d[0],
+                  f = file + d[1];
+                if (onBoard(r, f)) {
+                  let target = testBoard[r][f];
+                  if (!target || pieceColor(target) !== color) {
+                    moves.push({ rank: r, file: f });
+                  }
+                }
+              }
+              break;
+            }
+          }
+          return moves;
+        }
+
+        function copyBoard(original) {
+          return original.map((row) => row.slice());
+        }
+
+        function hasAnyLegalMoves(color) {
+          for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+              if (board[r][f] && pieceColor(board[r][f]) === color) {
+                let moves = generatePossibleMoves(r, f);
+                if (moves.length > 0) return true;
+              }
+            }
+          }
+          return false;
+        }
+
+        function movePiece(toRank, toFile) {
+          if (!selectedSquare) return;
+          if (gameOver) return;
+
+          if (
+            !possibleMoves.some((m) => m.rank === toRank && m.file === toFile)
+          )
+            return;
+
+          let piece = board[selectedSquare.rank][selectedSquare.file];
+          board[toRank][toFile] = piece;
+          board[selectedSquare.rank][selectedSquare.file] = "";
+
+          if (piece.toUpperCase() === "P") {
+            const promotionRow = pieceColor(piece) === "white" ? 0 : 7;
+            if (toRank === promotionRow) {
+              board[toRank][toFile] = pieceColor(piece) === "white" ? "Q" : "q";
+            }
+          }
+
+          currentTurn = opponent(currentTurn);
+
+          const inCheck = isKingInCheckPosition(board, currentTurn);
+          const legalMoves = hasAnyLegalMoves(currentTurn);
+
+          if (inCheck && !legalMoves) {
+            gameOver = true;
+            statusElement.textContent =
+              "Checkmate! " + capitalize(opponent(currentTurn)) + " wins.";
+            statusElement.classList.add("check");
+          } else if (inCheck) {
+            statusElement.textContent =
+              "Check! " + capitalize(currentTurn) + " to move.";
+            statusElement.classList.add("check");
+          } else {
+            statusElement.textContent = capitalize(currentTurn) + " to move.";
+            statusElement.classList.remove("check");
+          }
+
+          selectedSquare = null;
+          possibleMoves = [];
+          renderBoard();
+        }
+
+        function renderBoard() {
+          boardElement.innerHTML = "";
+          for (let rank = 0; rank < 8; rank++) {
+            for (let file = 0; file < 8; file++) {
+              const squareColor = (rank + file) % 2 === 0 ? "light" : "dark";
+              const square = document.createElement("div");
+              square.classList.add("square", squareColor);
+
+              const piece = board[rank][file];
+              if (piece) {
+                const color = pieceColor(piece);
+                if (color === "white") {
+                  square.classList.add("white-piece-square");
+                }
+                square.dataset.rank = rank;
+                square.dataset.file = file;
+
+                // Highlight king square if it is that color king and in check (only one king)
+                if (
+                  piece.toUpperCase() === "K" &&
+                  isKingInCheckPosition(board, color)
+                ) {
+                  square.classList.add("king-in-check");
+                }
+
+                const pieceSpan = document.createElement("span");
+                pieceSpan.classList.add("piece", color);
+                pieceSpan.textContent = piecesUnicode[piece];
+                square.appendChild(pieceSpan);
+              } else {
+                square.dataset.rank = rank;
+                square.dataset.file = file;
+              }
+
+              if (
+                selectedSquare &&
+                selectedSquare.rank === rank &&
+                selectedSquare.file === file
+              ) {
+                square.classList.add("selected");
+              }
+              if (
+                possibleMoves.some((m) => m.rank === rank && m.file === file)
+              ) {
+                square.classList.add("possible-move");
+              }
+              square.addEventListener("click", () => onSquareClick(rank, file));
+              boardElement.appendChild(square);
+            }
+          }
+        }
+
+        function onSquareClick(rank, file) {
+          if (gameOver) return;
+          let piece = board[rank][file];
+          const color = pieceColor(piece);
+          if (
+            selectedSquare &&
+            possibleMoves.some((m) => m.rank === rank && m.file === file)
+          ) {
+            movePiece(rank, file);
+            return;
+          }
+          if (piece && color === currentTurn) {
+            if (gameOver) return;
+            selectedSquare = { rank, file };
+            possibleMoves = generatePossibleMoves(rank, file);
+          } else {
+            selectedSquare = null;
+            possibleMoves = [];
+          }
+          renderBoard();
+        }
+
+        function resetGame() {
+          board = [
+            ["r", "n", "b", "q", "k", "b", "n", "r"],
+            ["p", "p", "p", "p", "p", "p", "p", "p"],
+            ["", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", ""],
+            ["P", "P", "P", "P", "P", "P", "P", "P"],
+            ["R", "N", "B", "Q", "K", "B", "N", "R"],
+          ];
+          selectedSquare = null;
+          possibleMoves = [];
+          currentTurn = "white";
+          gameOver = false;
+          statusElement.textContent = "White to move";
+          statusElement.classList.remove("check");
+          renderBoard();
+        }
+
+        resetBtn.addEventListener("click", resetGame);
+
+        resetGame();
+      })();
+    </script>
+  </body>
+</html>
